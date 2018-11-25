@@ -136,7 +136,7 @@ class TickOneStrategy(CtaTemplate):
             # elif self.pos == 0:
             #     return
 
-
+    # New commit for git testing.
 
 
 

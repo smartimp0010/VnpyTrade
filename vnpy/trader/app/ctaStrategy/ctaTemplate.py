@@ -131,7 +131,6 @@ class CtaTemplate(object):
                 vtOrderIDList = self.ctaEngine.sendStopOrder(self.vtSymbol, orderType, price, volume, self)
             else:
                 vtOrderIDList = self.ctaEngine.sendOrder(self.vtSymbol, orderType, price, volume, self)
-                # print ("vtOrderIDList" + str(vtOrderIDList))
             return vtOrderIDList
         else:
             # 交易停止时发单返回空字符串

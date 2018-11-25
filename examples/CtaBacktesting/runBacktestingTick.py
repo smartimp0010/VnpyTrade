@@ -13,7 +13,7 @@ if __name__ == '__main__':
     from vnpy.trader.app.ctaStrategy.strategy.strategyTickOne import TickOneStrategy
 
     # plotting
-    turn_on_plot = False
+    turn_on_plot = True
 
     # 创建回测引擎
     engine = BacktestingEngine()

@@ -49,6 +49,7 @@ class BacktestingEngine(object):
     TRADE_MODE = 'trade'            # i020
     HYBER_MODE = 'trade_tick'       # i020、i080
 
+
     #----------------------------------------------------------------------
     def __init__(self):
         """Constructor"""
@@ -314,7 +315,6 @@ class BacktestingEngine(object):
     def newTickTrade(self, tick):
         # print (tick.lastPrice)
         if tick.lastPrice > 0 :
-
             self.newTrade(tick)
             print(tick.symbol, tick.lastPrice, tick.bidPrice1, tick.askPrice1)
         elif tick.askPrice1 > 0:
@@ -385,6 +385,8 @@ class BacktestingEngine(object):
                 order.status = STATUS_NOTTRADED
                 self.strategy.onOrder(order)
 
+
+
             # 判断是否会成交
             buyCross = (order.direction==DIRECTION_LONG and 
                         order.price>=buyCrossPrice and
@@ -418,17 +420,21 @@ class BacktestingEngine(object):
 
                     # print ("self.strategy.pos: " + str(self.strategy.pos))
                     print("tradeID: " + str(tradeID))
-                    print ("trade.price: " + str(trade.price))
+                    print("trade.price: " + str(trade.price))
+                    print("trade.direction: " + trade.direction)
+                    print("trade.time: " + str(self.tick.datetime))
                 else:
                     trade.price = max(order.price, sellBestCrossPrice)
                     self.strategy.pos -= order.totalVolume
 
                     # print("self.strategy.pos: " + str(self.strategy.pos))
                     print("tradeID: " + str(tradeID))
-                    print ("trade.price: " + str(trade.price))
+                    print("trade.price: " + str(trade.price))
+                    print("trade.direction: " + trade.direction)
+                    print("trade.time: " +str(self.tick.datetime))
 
                 trade.volume = order.totalVolume
-                trade.tradeTime = self.dt.strftime('%H:%M:%S')
+                trade.tradeTime = self.dt.strftime('%H:%M:%S.%f')
                 trade.dt = self.dt
                 self.strategy.onTrade(trade)
                 
@@ -496,7 +502,7 @@ class BacktestingEngine(object):
                 trade.direction = so.direction
                 trade.offset = so.offset
                 trade.volume = so.volume
-                trade.tradeTime = self.dt.strftime('%H:%M:%S')
+                trade.tradeTime = self.dt.strftime('%H:%M:%S.%f')
                 trade.dt = self.dt
                 
                 self.tradeDict[tradeID] = trade
@@ -539,7 +545,7 @@ class BacktestingEngine(object):
         order.totalVolume = volume
         order.orderID = orderID
         order.vtOrderID = orderID
-        order.orderTime = self.dt.strftime('%H:%M:%S')
+        order.orderTime = self.dt.strftime('%H:%M:%S.%f')
         
         # CTA委托类型映射
         if orderType == CTAORDER_BUY:
@@ -561,6 +567,9 @@ class BacktestingEngine(object):
         # print("self.workingLimitOrderDict" + str(self.workingLimitOrderDict))
         print("orderID: " + str(orderID))
         print("order.price: " + str(order.price))
+        # print("order.direction: "+str(order.direction))
+        print("order.direction: " + order.direction)
+        print("order.orderTime: " + str(order.orderTime))
         return [orderID]
     
     #----------------------------------------------------------------------
@@ -783,8 +792,7 @@ class BacktestingEngine(object):
                                 break
                             # 如果开仓交易还有剩余，则进入下一轮循环
                             else:
-                                pass                    
-        
+                                pass
         # 到最后交易日尚未平仓的交易，则以最后价格平仓
         if self.mode == self.BAR_MODE:
             endPrice = self.bar.close
@@ -837,6 +845,8 @@ class BacktestingEngine(object):
             
             pnlList.append(result.pnl)
             timeList.append(result.exitDt)      # 交易的时间戳使用平仓时间
+
+
             capitalList.append(capital)
             drawdownList.append(drawdown)
             
@@ -897,9 +907,8 @@ class BacktestingEngine(object):
         
         # 输出
         self.output('-' * 30)
-        print(d['timeList'])
-        self.output(u'第一笔交易：\t%s' % d['timeList'][0])
-        self.output(u'最后一笔交易：\t%s' % d['timeList'][-1])
+        self.output(u'第一笔交易平倉：\t%s' % d['timeList'][0])
+        self.output(u'最后一笔交易平倉：\t%s' % d['timeList'][-1])
         
         self.output(u'总交易次数：\t%s' % formatNumber(d['totalResult']))        
         self.output(u'总盈亏：\t%s' % formatNumber(d['capital']))
@@ -919,7 +928,8 @@ class BacktestingEngine(object):
     #----------------------------------------------------------------------
 
     def plotResult(self):
-        fig = plt.figure(figsize=(10, 16))
+
+        fig = plt.figure(figsize=(5, 6))
 
         pCapital = plt.subplot(4, 1, 1)
         pCapital.set_ylabel("capital")
@@ -937,8 +947,9 @@ class BacktestingEngine(object):
         pPos.set_ylabel("Position")
         if self.d_result['posList'][-1] == 0:
             del self.d_result['posList'][-1]
-        tradeTimeIndex = [item.strftime("%m/%d %H:%M:%S") for item in self.d_result['tradeTimeList']]
-        xindex = np.arange(0, len(tradeTimeIndex), np.int(len(tradeTimeIndex) / 10))
+
+        tradeTimeIndex = [item.strftime("%m/%d %H:%M:%S.%f") for item in self.d_result['tradeTimeList']]
+        xindex = np.arange(0, len(tradeTimeIndex), np.int(len(tradeTimeIndex) / 8))
         tradeTimeIndex = map(lambda i: tradeTimeIndex[i], xindex)
         pPos.plot(self.d_result['posList'], color='k', drawstyle='steps-pre')
         pPos.set_ylim(-1.2, 1.2)
@@ -1231,7 +1242,7 @@ class TradingResult(object):
         self.entryPrice = entryPrice    # 开仓价格
         self.exitPrice = exitPrice      # 平仓价格
         
-        self.entryDt = entryDt          # 开仓时间datetime    
+        self.entryDt = entryDt          # 开仓时间datetime
         self.exitDt = exitDt            # 平仓时间
         
         self.volume = volume    # 交易数量（+/-代表方向）

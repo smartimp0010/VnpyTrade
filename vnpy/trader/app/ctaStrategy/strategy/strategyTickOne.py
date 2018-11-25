@@ -99,15 +99,16 @@ class TickOneStrategy(CtaTemplate):
         TA.updateTick(tick)
         if not TA.inited:
             return
-        if self.pos == 0:
+        if self.pos <= 0:
             # 如果空仓，分析过去10个对比，ask卖方多下空单，bid买方多下多单，并防止两个差价阻止单
             # if TA.askBidVolumeDif() > 0:
             #     self.short(tick.lastPrice, self.fixedSize, False)
             #     self.cover(tick.lastPrice + 2,self.fixedSize, True)
             # elif TA.askBidVolumeDif() < 0:
             self.buy(tick.lastPrice, self.fixedSize, False)
-        else:
-            self.buy(tick.lastPrice, self.fixedSize, False)
+        else :
+            self.sell(tick.lastPrice, self.fixedSize, False)
+
                 # self.sell(tick.lastPrice - 2, self.fixedSize, True)
 
             # elif self.pos > 0:

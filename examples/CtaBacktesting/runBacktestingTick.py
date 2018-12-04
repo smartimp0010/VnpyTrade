@@ -15,6 +15,9 @@ if __name__ == '__main__':
     # plotting
     turn_on_plot = True
 
+    # Sql
+    turn_on_sql = True
+
     # 创建回测引擎
     engine = BacktestingEngine()
     
@@ -38,8 +41,10 @@ if __name__ == '__main__':
     engine.initStrategy(TickOneStrategy, d)
 
     # 开始跑回测
-
-    engine.runBacktesting()
+    if turn_on_sql:
+        engine.runBacktestingSql()
+    else:
+        engine.runBacktesting()
     
     # 显示回测结果
     engine.showBacktestingResult()

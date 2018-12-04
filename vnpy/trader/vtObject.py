@@ -64,27 +64,6 @@ class VtTickData(VtBaseData):
         self.askVolume4 = EMPTY_INT
         self.askVolume5 = EMPTY_INT
 
-
-########################################################################
-# class VtTradeTickData(VtBaseData):
-#     """Tick行情数据类"""
-#     def __init__(self):
-#         """Constructor"""
-#         super(VtTickData, self).__init__()
-#         # 代码相关
-#         self.symbol = EMPTY_STRING              # 合约代码
-#         self.exchange = EMPTY_STRING            # 交易所代码
-#         self.vtSymbol = EMPTY_STRING            # 合约在vt系统中的唯一代码，通常是 合约代码.交易所代码
-#
-#         # 成交数据
-#         self.lastPrice = EMPTY_FLOAT            # 最新成交价
-#         self.lastVolume = EMPTY_INT             # 最新成交量
-#         self.volume = EMPTY_INT                 # 今天总成交量
-#
-#         self.time = EMPTY_STRING                # 时间 11:20:56.5
-#         self.date = EMPTY_STRING                # 日期 20151009
-#         self.datetime = None                    # python的datetime时间对象
-    
 ########################################################################
 class VtBarData(VtBaseData):
     """K线数据"""

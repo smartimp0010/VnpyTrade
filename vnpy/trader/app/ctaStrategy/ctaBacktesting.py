@@ -13,6 +13,7 @@ from itertools import product
 import multiprocessing
 import copy
 
+import pyodbc
 import pymongo
 import pandas as pd
 import numpy as np
@@ -239,8 +240,7 @@ class BacktestingEngine(object):
         for d in initCursor:
             data = dataClass()
             data.__dict__ = d
-            self.initData.append(data)      
-        
+            self.initData.append(data)
         # 载入回测数据
         if self.hdsClient:
             self.dbCursor = self.hdsClient.loadHistoryData(self.dbName,
@@ -260,13 +260,71 @@ class BacktestingEngine(object):
         else:
             count = initCursor.count() + self.dbCursor.count()
         self.output(u'载入完成，数据量：%s' %count)
-        
+
+    #----------------------------------------------------------------------
+    def loadHistoryDataSql(self):
+        """载入历史数据"""
+
+        cnxn = pyodbc.connect('DRIVER={SQL Server};SERVER=192.168.0.5;DATABASE=msdb;UID=sa;PWD=9685')
+        cursor = cnxn.cursor()
+
+        cursor.execute("select * from TXFTickData")
+        row = cursor.fetchall()
+
+        self.output(u'开始载入数据')
+
+        if self.mode == self.BAR_MODE:
+            dataClass = VtBarData
+        elif self.mode == self.TICK_MODE:
+            dataClass = VtTickData
+        elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+        else:
+            dataClass = VtTickData
+
+        # 载入初始化需要用的数据
+        if self.hdsClient:
+            initCursor = self.hdsClient.loadHistoryData(self.dbName,
+                                                        self.symbol,
+                                                        self.dataStartDate,
+                                                        self.strategyStartDate)
+        else:
+            flt = {'datetime': {'$gte': self.dataStartDate,
+                                '$lt': self.strategyStartDate}}
+            initCursor = row
+        # 将数据从查询指针中读取出，并生成列表
+        self.initData = []  # 清空initData列表
+        headers = ['SeqNo', 'datetime', 'time', 'microSec', 'Seq', 'symbol', 'lastPrice', 'lastVolume', 'bidPrice1', 'bidPrice2', 'bidPrice3', 'bidPrice4', 'bidPrice5', 'askPrice1', 'askPrice2', 'askPrice3', 'askPrice4', 'askPrice5', \
+                   'bidVolume1', 'bidVolume2', 'bidVolume3', 'bidVolume4', 'bidVolume5', 'askVolume1', 'askVolume2', 'askVolume3', 'askVolume4', 'askVolume5', 'ptype', 'volume', 'Status', 'MulticastGroup', 'MsgTime']
+
+        for d in initCursor:
+            data = dataClass()
+            data.__dict__ = dict(zip(headers, d))
+            self.initData.append(data)
+        # 载入回测数据
+        if self.hdsClient:
+            self.dbCursor = self.hdsClient.loadHistoryData(self.dbName,
+                                                           self.symbol,
+                                                           self.strategyStartDate,
+                                                           self.dataEndDate)
+        else:
+            if not self.dataEndDate:
+                flt = {'datetime': {'$gte': self.strategyStartDate}}  # 数据过滤条件
+            else:
+                flt = {'datetime': {'$gte': self.strategyStartDate,
+                                    '$lte': self.dataEndDate}}
+            self.dbCursor = row
+        if isinstance(self.dbCursor, list):
+            count = len(initCursor) + len(self.dbCursor)
+        else:
+            count = initCursor.count() + self.dbCursor.count()
+        self.output(u'载入完成，数据量：%s' % count)
+
     #----------------------------------------------------------------------
     def runBacktesting(self):
         """运行回测"""
         # 载入历史数据
         self.loadHistoryData()
-        
         # 首先根据回测模式，确认要使用的数据类
         if self.mode == self.BAR_MODE:
             dataClass = VtBarData
@@ -295,10 +353,48 @@ class BacktestingEngine(object):
         for d in self.dbCursor: # DB逐筆資料
             data = dataClass()
             data.__dict__ = d
+            print(d)
             func(data)     
             
         self.output(u'数据回放结束')
-        
+
+    # ----------------------------------------------------------------------
+    def runBacktestingSql(self):
+        """运行回测"""
+        # 载入历史数据
+        self.loadHistoryDataSql()
+        # 首先根据回测模式，确认要使用的数据类
+        if self.mode == self.BAR_MODE:
+            dataClass = VtBarData
+            func = self.newBar
+        elif self.mode == self.TICK_MODE:
+            dataClass = VtTickData
+            func = self.newTick
+        elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+            func = self.newTrade
+        else:
+            dataClass = VtTickData
+            func = self.newTickTrade
+
+        self.output(u'开始回测')
+        self.strategy.onInit()
+        self.strategy.inited = True
+        self.output(u'策略初始化完成')
+
+        self.strategy.trading = True
+        self.strategy.onStart()
+        self.output(u'策略启动完成')
+
+        self.output(u'开始回放数据')
+        headers = ['SeqNo', 'datetime', 'time', 'microSec', 'Seq', 'symbol', 'lastPrice', 'lastVolume', 'bidPrice1', 'bidPrice2', 'bidPrice3', 'bidPrice4', 'bidPrice5', 'askPrice1', 'askPrice2', 'askPrice3', 'askPrice4', 'askPrice5', \
+                   'bidVolume1', 'bidVolume2', 'bidVolume3', 'bidVolume4', 'bidVolume5', 'askVolume1', 'askVolume2', 'askVolume3', 'askVolume4', 'askVolume5', 'ptype', 'volume', 'Status', 'MulticastGroup', 'MsgTime']
+        for d in self.dbCursor:  # DB逐筆資料
+            data = dataClass()
+            data.__dict__ = dict(zip(headers, d))
+            func(data)
+
+        self.output(u'数据回放结束')
     #----------------------------------------------------------------------
     def newBar(self, bar):
         """新的K线"""
@@ -379,6 +475,7 @@ class BacktestingEngine(object):
             sellBestCrossPrice = self.tick.bidPrice1
 
         # 遍历限价单字典中的所有限价单
+        
         for orderID, order in self.workingLimitOrderDict.items():
             # 推送委托进入队列（未成交）的状态更新
             if not order.status:
@@ -427,7 +524,6 @@ class BacktestingEngine(object):
                     trade.price = max(order.price, sellBestCrossPrice)
                     self.strategy.pos -= order.totalVolume
 
-                    # print("self.strategy.pos: " + str(self.strategy.pos))
                     print("tradeID: " + str(tradeID))
                     print("trade.price: " + str(trade.price))
                     print("trade.direction: " + trade.direction)
@@ -439,7 +535,6 @@ class BacktestingEngine(object):
                 self.strategy.onTrade(trade)
                 
                 self.tradeDict[tradeID] = trade
-                # print ("tradeID: " + str(tradeID))
                 # 推送委托数据
                 order.tradedVolume = order.totalVolume
                 order.status = STATUS_ALLTRADED

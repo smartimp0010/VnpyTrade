@@ -46,10 +46,12 @@ class BacktestingEngine(object):
     """
 
     BAR_MODE = 'bar'
-    TICK_MODE = 'tick'              # i080
-    TRADE_MODE = 'trade'            # i020
-    HYBER_MODE = 'trade_tick'       # i020、i080
+    TRADE_MODE = 'trade'              # i020
+    BOOK_MODE = 'book'            # i080
+    HYBER_MODE = 'trade_book'       # i020、i080
 
+    DEFAULT_MODE = 'default'        #以080判斷成交價量
+    TRADEFILLED_MODE = 'tradefilled'    #加入020判斷成交價量
 
     #----------------------------------------------------------------------
     def __init__(self):
@@ -64,8 +66,9 @@ class BacktestingEngine(object):
         self.engineType = ENGINETYPE_BACKTESTING    # 引擎类型为回测
         
         self.strategy = None        # 回测策略
-        self.mode = self.TICK_MODE   # 回测模式，默认为K线
-        
+        self.mode = None   # 回测模式，默认为K线
+        self.simulateMode = None
+
         self.startDate = ''
         self.initDays = 0        
         self.endDate = ''
@@ -79,7 +82,8 @@ class BacktestingEngine(object):
         self.dbClient = None        # 数据库客户端
         self.dbCursor = None        # 数据库指针
         self.hdsClient = None       # 历史数据服务器客户端
-        
+
+        self.S = []                 #紀錄S
         self.initData = []          # 初始化用的数据
         self.dbName = ''            # 回测数据库名
         self.symbol = ''            # 回测集合名
@@ -156,7 +160,12 @@ class BacktestingEngine(object):
     def setBacktestingMode(self, mode):
         """设置回测模式"""
         self.mode = mode
-    
+
+    #----------------------------------------------------------------------
+    def setSimulatingMode(self, simulatemode):
+        """设置回测模式"""
+        self.simulateMode = simulatemode
+
     #----------------------------------------------------------------------
     def setDatabase(self, dbName, symbol):
         """设置历史数据所用的数据库"""
@@ -216,9 +225,9 @@ class BacktestingEngine(object):
 
         if self.mode == self.BAR_MODE:
             dataClass = VtBarData
-        elif self.mode == self.TICK_MODE:
-            dataClass = VtTickData
         elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+        elif self.mode == self.BOOK_MODE:
             dataClass = VtTickData
         else:
             dataClass = VtTickData
@@ -238,6 +247,7 @@ class BacktestingEngine(object):
         # 将数据从查询指针中读取出，并生成列表
         self.initData = []              # 清空initData列表
         for d in initCursor:
+            print (d)
             data = dataClass()
             data.__dict__ = d
             self.initData.append(data)
@@ -275,9 +285,9 @@ class BacktestingEngine(object):
 
         if self.mode == self.BAR_MODE:
             dataClass = VtBarData
-        elif self.mode == self.TICK_MODE:
-            dataClass = VtTickData
         elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+        elif self.mode == self.BOOK_MODE:
             dataClass = VtTickData
         else:
             dataClass = VtTickData
@@ -321,6 +331,70 @@ class BacktestingEngine(object):
         self.output(u'载入完成，数据量：%s' % count)
 
     #----------------------------------------------------------------------
+
+    def loadHistoryDataCsv(self):
+        """载入历史数据"""
+
+        df = pd.read_csv(
+            'C:/Users/Bette/Anaconda2/Lib/site-packages/vnpy-1.9.0-py2.7.egg/examples/CtaBacktesting/TXF01_Tick.csv', index_col=False)
+
+        df = df.rename(columns={"Date": "datetime", "Time": "time", "Pid": "symbol", "Dp": "lastPrice", "Dv": "lastVolume", "Bp1": "bidPrice1"\
+            , "Bp2": "bidPrice2", "Bp3": "bidPrice3", "Bp4": "bidPrice4", "Bp5": "bidPrice5", "Sp1": "askPrice1", "Sp2": "askPrice2", "Sp3": "askPrice3" \
+            , "Sp4": "askPrice4", "Sp5": "askPrice5", "Bv1": "bidVolume1", "Bv2": "bidVolume2", "Bv3": "bidVolume3", "Bv4": "bidVolume4", "Bv5": "bidVolume5" \
+            , "Sv1": "askVolume1", "Sv2": "askVolume2", "Sv3": "askVolume3", "Sv4": "askVolume4", "Sv5": "askVolume5", "Tvolume": "volume"})
+
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        row = df.to_dict('records')
+
+        self.output(u'开始载入数据')
+
+        if self.mode == self.BAR_MODE:
+            dataClass = VtBarData
+        elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+        elif self.mode == self.BOOK_MODE:
+            dataClass = VtTickData
+        else:
+            dataClass = VtTickData
+
+        # 载入初始化需要用的数据
+        if self.hdsClient:
+            initCursor = self.hdsClient.loadHistoryData(self.dbName,
+                                                        self.symbol,
+                                                        self.dataStartDate,
+                                                        self.strategyStartDate)
+        else:
+            flt = {'datetime': {'$gte': self.dataStartDate,
+                                '$lt': self.strategyStartDate}}
+            initCursor = row
+        # 将数据从查询指针中读取出，并生成列表
+        self.initData = []  # 清空initData列表
+
+        for d in initCursor:
+            data = dataClass()
+            data.__dict__ = d
+            self.initData.append(data)
+        # 载入回测数据
+        if self.hdsClient:
+            self.dbCursor = self.hdsClient.loadHistoryData(self.dbName,
+                                                           self.symbol,
+                                                           self.strategyStartDate,
+                                                           self.dataEndDate)
+        else:
+            if not self.dataEndDate:
+                flt = {'datetime': {'$gte': self.strategyStartDate}}  # 数据过滤条件
+            else:
+                flt = {'datetime': {'$gte': self.strategyStartDate,
+                                    '$lte': self.dataEndDate}}
+            self.dbCursor = row
+        if isinstance(self.dbCursor, list):
+            count = len(initCursor) + len(self.dbCursor)
+        else:
+            count = initCursor.count() + self.dbCursor.count()
+        self.output(u'载入完成，数据量：%s' % count)
+
+    #----------------------------------------------------------------------
+
     def runBacktesting(self):
         """运行回测"""
         # 载入历史数据
@@ -329,15 +403,15 @@ class BacktestingEngine(object):
         if self.mode == self.BAR_MODE:
             dataClass = VtBarData
             func = self.newBar
-        elif self.mode == self.TICK_MODE:
-            dataClass = VtTickData
-            func = self.newTick
         elif self.mode == self.TRADE_MODE:
             dataClass = VtTickData
             func = self.newTrade
+        elif self.mode == self.BOOK_MODE:
+            dataClass = VtTickData
+            func = self.newBook
         else:
             dataClass = VtTickData
-            func = self.newTickTrade
+            func = self.newTradeBook
 
         self.output(u'开始回测')
         self.strategy.onInit()
@@ -353,7 +427,6 @@ class BacktestingEngine(object):
         for d in self.dbCursor: # DB逐筆資料
             data = dataClass()
             data.__dict__ = d
-            print(d)
             func(data)     
             
         self.output(u'数据回放结束')
@@ -367,15 +440,15 @@ class BacktestingEngine(object):
         if self.mode == self.BAR_MODE:
             dataClass = VtBarData
             func = self.newBar
-        elif self.mode == self.TICK_MODE:
-            dataClass = VtTickData
-            func = self.newTick
         elif self.mode == self.TRADE_MODE:
             dataClass = VtTickData
             func = self.newTrade
+        elif self.mode == self.BOOK_MODE:
+            dataClass = VtTickData
+            func = self.newBook
         else:
             dataClass = VtTickData
-            func = self.newTickTrade
+            func = self.newTradeBook
 
         self.output(u'开始回测')
         self.strategy.onInit()
@@ -396,6 +469,44 @@ class BacktestingEngine(object):
 
         self.output(u'数据回放结束')
     #----------------------------------------------------------------------
+
+    def runBacktestingCsv(self):
+        """运行回测"""
+        # 载入历史数据
+        self.loadHistoryDataCsv()
+        # 首先根据回测模式，确认要使用的数据类
+        if self.mode == self.BAR_MODE:
+            dataClass = VtBarData
+            func = self.newBar
+        elif self.mode == self.TRADE_MODE:
+            dataClass = VtTickData
+            func = self.newTrade
+        elif self.mode == self.BOOK_MODE:
+            dataClass = VtTickData
+            func = self.newBook
+        else:
+            dataClass = VtTickData
+            func = self.newTradeBook
+
+        self.output(u'开始回测')
+        self.strategy.onInit()
+        self.strategy.inited = True
+        self.output(u'策略初始化完成')
+
+        self.strategy.trading = True
+        self.strategy.onStart()
+        self.output(u'策略启动完成')
+
+        self.output(u'开始回放数据')
+        for d in self.dbCursor:  # DB逐筆資料
+            print("#########################################")
+            data = dataClass()
+            data.__dict__ = d
+            func(data)
+
+        self.output(u'数据回放结束')
+    #----------------------------------------------------------------------
+
     def newBar(self, bar):
         """新的K线"""
         self.bar = bar
@@ -408,21 +519,36 @@ class BacktestingEngine(object):
         self.updateDailyClose(bar.datetime, bar.close)
 
     #----------------------------------------------------------------------
-    def newTickTrade(self, tick):
-        # print (tick.lastPrice)
-        if tick.lastPrice > 0 :
-            self.newTrade(tick)
-            print(tick.symbol, tick.lastPrice, tick.bidPrice1, tick.askPrice1)
-        elif tick.askPrice1 > 0:
-            self.newTick(tick)
+    def newTradeBook(self, tick):
+
+        if tick.askPrice1 > 0:
+            self.newBook(tick)
             print(tick.symbol, tick.lastPrice, tick.bidPrice1, tick.askPrice1)
         else:
-            print("Unknown data type")
+            self.newBook(tick)
+            self.newTrade(tick)
+            print(tick.symbol, tick.lastPrice, tick.bidPrice1, tick.askPrice1)
+
 
 
     #----------------------------------------------------------------------
-    def newTick(self, tick):
+    def newTrade(self, tick):
         """新的Tick"""
+        self.tick = tick
+        self.dt = tick.datetime
+        #
+        self.S.append(tick.lastPrice)
+        print(self.S)
+
+        self.crossLimitOrder()
+        self.crossStopOrder()
+        self.strategy.onTick(tick)
+
+        self.updateDailyClose(tick.datetime, tick.lastPrice)
+
+    #----------------------------------------------------------------------
+    def newBook(self, tick):
+        """新的Trade"""
         self.tick = tick
         self.dt = tick.datetime
 
@@ -432,17 +558,6 @@ class BacktestingEngine(object):
 
         self.updateDailyClose(tick.datetime, tick.lastPrice)
 
-    #----------------------------------------------------------------------
-    def newTrade(self, tick):
-        """新的Trade"""
-        self.tick = tick
-        self.dt = tick.datetime
-
-        self.crossLimitOrder()
-        self.crossStopOrder()
-        self.strategy.onTick(tick)
-
-        self.updateDailyClose(tick.datetime, tick.lastPrice)
 
 
     #----------------------------------------------------------------------
@@ -475,7 +590,6 @@ class BacktestingEngine(object):
             sellBestCrossPrice = self.tick.bidPrice1
 
         # 遍历限价单字典中的所有限价单
-        
         for orderID, order in self.workingLimitOrderDict.items():
             # 推送委托进入队列（未成交）的状态更新
             if not order.status:
@@ -483,16 +597,32 @@ class BacktestingEngine(object):
                 self.strategy.onOrder(order)
 
 
+            if self.simulateMode == self.DEFAULT_MODE:
+                # 以080判斷是否成交
+                buyCross = (order.direction==DIRECTION_LONG and
+                            order.price>=buyCrossPrice and
+                            buyCrossPrice > 0)      # 国内的tick行情在涨停时askPrice1为0，此时买无法成交
 
-            # 判断是否会成交
-            buyCross = (order.direction==DIRECTION_LONG and 
-                        order.price>=buyCrossPrice and
-                        buyCrossPrice > 0)      # 国内的tick行情在涨停时askPrice1为0，此时买无法成交
-            
-            sellCross = (order.direction==DIRECTION_SHORT and 
-                         order.price<=sellCrossPrice and
-                         sellCrossPrice > 0)    # 国内的tick行情在跌停时bidPrice1为0，此时卖无法成交
-            
+                sellCross = (order.direction==DIRECTION_SHORT and
+                             order.price<=sellCrossPrice and
+                             sellCrossPrice > 0)    # 国内的tick行情在跌停时bidPrice1为0，此时卖无法成交
+            else:
+                # 同時以080及020判斷是否成交
+                if self.tick.lastPrice > 0:
+                    buyCross = (order.direction==DIRECTION_LONG and
+                            order.price>=self.tick.lastPrice)      # 国内的tick行情在涨停时askPrice1为0，此时买无法成交
+
+                    sellCross = (order.direction==DIRECTION_SHORT and
+                             order.price<=self.tick.lastPrice)    # 国内的tick行情在跌停时bidPrice1为0，此时卖无法成交
+                else:
+                    buyCross = (order.direction == DIRECTION_LONG and
+                                order.price >= buyCrossPrice and
+                                buyCrossPrice > 0)  # 国内的tick行情在涨停时askPrice1为0，此时买无法成交
+
+                    sellCross = (order.direction == DIRECTION_SHORT and
+                                 order.price <= sellCrossPrice and
+                                 sellCrossPrice > 0)  # 国内的tick行情在跌停时bidPrice1为0，此时卖无法成交
+
             # 如果发生了成交
             if buyCross or sellCross:
                 # 推送成交数据
@@ -511,23 +641,40 @@ class BacktestingEngine(object):
                 # 1. 假设当根K线的OHLC分别为：100, 125, 90, 110
                 # 2. 假设在上一根K线结束(也是当前K线开始)的时刻，策略发出的委托为限价105
                 # 3. 则在实际中的成交价会是100而不是105，因为委托发出时市场的最优价格是100
-                if buyCross:
-                    trade.price = min(order.price, buyBestCrossPrice)
-                    self.strategy.pos += order.totalVolume
+                if self.simulateMode == self.DEFAULT_MODE:
+                    if buyCross:
+                        trade.price = min(order.price, buyBestCrossPrice)
+                        self.strategy.pos += order.totalVolume
 
-                    # print ("self.strategy.pos: " + str(self.strategy.pos))
-                    print("tradeID: " + str(tradeID))
-                    print("trade.price: " + str(trade.price))
-                    print("trade.direction: " + trade.direction)
-                    print("trade.time: " + str(self.tick.datetime))
+                        print("tradeID: " + str(tradeID))
+                        print("trade.price: " + str(trade.price))
+                        print("trade.direction: " + trade.direction)
+                        print("trade.time: " + str(self.tick.datetime))
+                    else:
+                        trade.price = max(order.price, sellBestCrossPrice)
+                        self.strategy.pos -= order.totalVolume
+
+                        print("tradeID: " + str(tradeID))
+                        print("trade.price: " + str(trade.price))
+                        print("trade.direction: " + trade.direction)
+                        print("trade.time: " +str(self.tick.datetime))
                 else:
-                    trade.price = max(order.price, sellBestCrossPrice)
-                    self.strategy.pos -= order.totalVolume
+                    if buyCross:
+                        trade.price = order.price
+                        self.strategy.pos += order.totalVolume
 
-                    print("tradeID: " + str(tradeID))
-                    print("trade.price: " + str(trade.price))
-                    print("trade.direction: " + trade.direction)
-                    print("trade.time: " +str(self.tick.datetime))
+                        print("tradeID: " + str(tradeID))
+                        print("trade.price: " + str(trade.price))
+                        print("trade.direction: " + trade.direction)
+                        print("trade.time: " + str(self.tick.datetime))
+                    else:
+                        trade.price = order.price
+                        self.strategy.pos -= order.totalVolume
+
+                        print("tradeID: " + str(tradeID))
+                        print("trade.price: " + str(trade.price))
+                        print("trade.direction: " + trade.direction)
+                        print("trade.time: " + str(self.tick.datetime))
 
                 trade.volume = order.totalVolume
                 trade.tradeTime = self.dt.strftime('%H:%M:%S.%f')
@@ -552,7 +699,7 @@ class BacktestingEngine(object):
             buyCrossPrice = self.bar.high    # 若买入方向停止单价格低于该价格，则会成交
             sellCrossPrice = self.bar.low    # 若卖出方向限价单价格高于该价格，则会成交
             bestCrossPrice = self.bar.open   # 最优成交价，买入停止单不能低于，卖出停止单不能高于
-        elif self.mode == self.TICK_MODE:
+        elif self.mode == self.BOOK_MODE:
             buyCrossPrice = self.tick.askPrice1
             sellCrossPrice = self.tick.bidPrice1
             bestCrossPrice = self.tick.lastPrice
@@ -674,7 +821,7 @@ class BacktestingEngine(object):
             order = self.workingLimitOrderDict[vtOrderID]
             
             order.status = STATUS_CANCELLED
-            order.cancelTime = self.dt.strftime('%H:%M:%S')
+            order.cancelTime = self.dt.strftime('%H:%M:%S.%f')
             
             self.strategy.onOrder(order)
             
@@ -891,7 +1038,7 @@ class BacktestingEngine(object):
         # 到最后交易日尚未平仓的交易，则以最后价格平仓
         if self.mode == self.BAR_MODE:
             endPrice = self.bar.close
-        elif self.mode == self.TICK_MODE:
+        elif self.mode == self.BOOK_MODE:
             endPrice = (self.tick.bidPrice1 + self.tick.askPrice1)/2
         else:
             endPrice = self.tick.lastPrice
@@ -1034,9 +1181,9 @@ class BacktestingEngine(object):
         pDD.set_ylabel("DD")
         pDD.bar(range(len(self.d_result['drawdownList'])), self.d_result['drawdownList'], color='g')
 
-        pPnl = plt.subplot(4, 1, 3)
-        pPnl.set_ylabel("pnl")
-        pPnl.hist(self.d_result['pnlList'], bins=50, color='c')
+        pS = plt.subplot(4, 1, 3)
+        pS.set_ylabel("S")
+        pS.plot(self.S, color='c', lw=0.8)
 
         pPos = plt.subplot(4, 1, 4)
         pPos.set_ylabel("Position")
